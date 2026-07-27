@@ -1,18 +1,12 @@
-"""AnimationManager – procedural effects + optional frame sequences.
-
-Frame folders (optional):
-  assets/pets/<name>/animations/<state>/001.png, 002.png, ...
-If present, those frames are played; otherwise procedural motion is used.
-"""
+"""AnimationManager – smoother procedural motion + optional frame sequences."""
 
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QObject, QTimer, Signal, QPoint, Qt
-from PySide6.QtGui import QPixmap, QPainter, QColor
+from PySide6.QtGui import QPixmap
 
 from src.core.state_machine import PetState
 from src.utils.logger import get_logger
@@ -20,7 +14,6 @@ from src.utils.paths import get_pet_dir
 
 logger = get_logger("animation")
 
-# Map PetState → folder name under animations/
 STATE_FOLDER: Dict[PetState, str] = {
     PetState.IDLE: "idle",
     PetState.WALK: "walk",
@@ -49,7 +42,7 @@ class AnimationManager(QObject):
         self._frame_index = 0
 
         self._timer = QTimer(self)
-        self._timer.setInterval(50)
+        self._timer.setInterval(40)  # slightly smoother
         self._timer.timeout.connect(self._on_tick)
 
     def set_pet_name(self, name: str) -> None:
@@ -93,8 +86,7 @@ class AnimationManager(QObject):
 
     def _on_tick(self) -> None:
         self._tick += 1
-        # Advance frame sequence every ~3 ticks (~150ms)
-        if self._tick % 3 == 0:
+        if self._tick % 4 == 0:
             folder = STATE_FOLDER.get(self._state, "")
             frames = self._frame_sets.get(folder)
             if frames:
@@ -118,7 +110,7 @@ class AnimationManager(QObject):
         self.frame_changed.emit(pix, offset)
 
     def _procedural(self) -> tuple[QPixmap, QPoint]:
-        """Livelier single-image motion until real frames exist."""
+        """Softer, less robotic single-image motion."""
         if self._base.isNull():
             return QPixmap(), QPoint(0, 0)
 
@@ -127,49 +119,50 @@ class AnimationManager(QObject):
         t = self._tick
 
         if self._state == PetState.IDLE:
-            # Breathing + tiny sway
-            scale_y = 1.0 + 0.02 * math.sin(t * 0.06)
-            scale_x = 1.0 + 0.008 * math.sin(t * 0.06 + 0.5)
-            new_w = max(1, int(self._base.width() * scale_x))
-            new_h = max(1, int(self._base.height() * scale_y))
+            # Very gentle breath + tiny sway (slow sine)
+            breath = 1.0 + 0.012 * math.sin(t * 0.045)
+            sway = int(1.5 * math.sin(t * 0.03))
+            new_h = max(1, int(self._base.height() * breath))
             pix = self._base.scaled(
-                new_w, new_h,
+                self._base.width(),
+                new_h,
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            offset = QPoint(int(2 * math.sin(t * 0.04)), 0)
+            offset = QPoint(sway, 0)
 
         elif self._state == PetState.LOOK_AROUND:
-            dx = int(10 * math.sin(t * 0.1))
+            # Smooth look left-right
+            dx = int(6 * math.sin(t * 0.07))
             offset = QPoint(dx, 0)
 
         elif self._state in (PetState.YAWN, PetState.STRETCH):
-            s = 1.0 - 0.06 * abs(math.sin(min(t, 40) * 0.12))
+            # Soft squash, ease in-out feel
+            phase = min(t, 50) / 50.0
+            s = 1.0 - 0.04 * math.sin(phase * math.pi)
             pix = self._base.scaled(
-                max(1, int(self._base.width() * (1.0 + (1.0 - s)))),
+                max(1, int(self._base.width() * (1.0 + (1.0 - s) * 0.4))),
                 max(1, int(self._base.height() * s)),
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
 
         elif self._state == PetState.SLEEP:
-            offset = QPoint(0, 5)
-            # slight dim could be done later with a darkened copy
+            offset = QPoint(0, 3)
 
         elif self._state in (PetState.CLICK, PetState.HAPPY):
-            # Bounce
-            phase = min(t, 25)
-            dy = -int(12 * abs(math.sin(phase * 0.35)))
+            # Quick soft bounce then settle
+            phase = min(t, 30)
+            dy = -int(8 * abs(math.sin(phase * 0.28)) * (1.0 - phase / 35.0))
             offset = QPoint(0, dy)
 
         elif self._state == PetState.WALK:
-            dx = int(6 * math.sin(t * 0.2))
-            dy = int(2 * abs(math.sin(t * 0.4)))  # tiny hop
+            dx = int(4 * math.sin(t * 0.14))
+            dy = int(1.5 * abs(math.sin(t * 0.28)))
             offset = QPoint(dx, dy)
 
         elif self._state == PetState.TALK:
-            # Small excited bob
-            dy = -int(3 * abs(math.sin(t * 0.25)))
+            dy = -int(2 * abs(math.sin(t * 0.2)))
             offset = QPoint(0, dy)
 
         return pix, offset
