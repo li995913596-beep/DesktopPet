@@ -22,8 +22,8 @@ logger = get_logger("pet_window")
 # Product-required scale steps (80% ~ 200%)
 SCALE_STEPS: list[float] = [0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
 
-# Target default display height in pixels (comfortable desktop size)
-DEFAULT_TARGET_HEIGHT: int = 200
+# Target default display height in pixels (compact desktop size)
+DEFAULT_TARGET_HEIGHT: int = 150
 
 
 class PetWindow(QWidget):
@@ -93,11 +93,10 @@ class PetWindow(QWidget):
 
         self._original_pixmap = pixmap
 
-        # Auto-fit to comfortable size if current scale would make it too large
-        # or if this is effectively first run (scale == 1.0)
+        # Always prefer a compact size on load if the current scale is too large
         current_h = pixmap.height() * self._scale
-        if current_h > DEFAULT_TARGET_HEIGHT * 1.15 or abs(self._scale - 1.0) < 1e-6:
-            auto_scale = DEFAULT_TARGET_HEIGHT / float(pixmap.height())
+        if current_h > DEFAULT_TARGET_HEIGHT * 1.1 or abs(self._scale - 1.0) < 1e-6:
+            auto_scale = DEFAULT_TARGET_HEIGHT / float(max(pixmap.height(), 1))
             self._scale = min(SCALE_STEPS, key=lambda s: abs(s - auto_scale))
             self.config.set("scale", self._scale)
             logger.info(
