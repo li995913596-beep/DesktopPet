@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, QSize, Signal
+from PySide6.QtCore import Qt, QPoint, Signal
 from PySide6.QtGui import (
     QPixmap,
     QMouseEvent,
@@ -22,8 +22,8 @@ logger = get_logger("pet_window")
 # Product-required scale steps (80% ~ 200%)
 SCALE_STEPS: list[float] = [0.8, 0.9, 1.0, 1.2, 1.5, 2.0]
 
-# Target default display height in pixels
-DEFAULT_TARGET_HEIGHT: int = 220
+# Target default display height in pixels (comfortable desktop size)
+DEFAULT_TARGET_HEIGHT: int = 200
 
 
 class PetWindow(QWidget):
@@ -36,7 +36,6 @@ class PetWindow(QWidget):
     - Close event hides to tray (does not quit)
     """
 
-    # Emitted when user requests quit from tray or elsewhere
     quit_requested = Signal()
 
     def __init__(self, config: ConfigManager) -> None:
@@ -52,39 +51,27 @@ class PetWindow(QWidget):
         self._load_pet_image()
         self._restore_geometry()
 
-    # ------------------------------------------------------------------
-    # Window flags & attributes (critical for transparency + focus)
-    # ------------------------------------------------------------------
-
     def _setup_window_flags(self) -> None:
         """Frameless + translucent + always-on-top + no focus steal."""
         flags = (
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool          # no taskbar button, less focus stealing
+            | Qt.WindowType.Tool
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setWindowFlags(flags)
 
-        # Core transparency attributes
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-
-        # Prevent any automatic background fill
         self.setAutoFillBackground(False)
         self.setMouseTracking(True)
-
-    # ------------------------------------------------------------------
-    # Image loading & scaling
-    # ------------------------------------------------------------------
 
     def _load_pet_image(self) -> None:
         pet_name = self.config.settings.pet_name
         pixmap = self.resources.get_pet_image(pet_name)
 
         if pixmap is None or pixmap.isNull():
-            # Transparent placeholder so the window itself stays fully transparent
             pixmap = QPixmap(160, 160)
             pixmap.fill(Qt.GlobalColor.transparent)
             painter = QPainter(pixmap)
@@ -106,14 +93,18 @@ class PetWindow(QWidget):
 
         self._original_pixmap = pixmap
 
-        # If scale is still the old default (1.0) and image is large,
-        # auto-fit to DEFAULT_TARGET_HEIGHT for first run comfort.
-        if abs(self._scale - 1.0) < 1e-6 and pixmap.height() > DEFAULT_TARGET_HEIGHT:
+        # Auto-fit to comfortable size if current scale would make it too large
+        # or if this is effectively first run (scale == 1.0)
+        current_h = pixmap.height() * self._scale
+        if current_h > DEFAULT_TARGET_HEIGHT * 1.15 or abs(self._scale - 1.0) < 1e-6:
             auto_scale = DEFAULT_TARGET_HEIGHT / float(pixmap.height())
-            # Snap to nearest allowed step
             self._scale = min(SCALE_STEPS, key=lambda s: abs(s - auto_scale))
             self.config.set("scale", self._scale)
-            logger.info("Auto-scaled to %.1f (target height ~%dpx)", self._scale, DEFAULT_TARGET_HEIGHT)
+            logger.info(
+                "Auto-scaled to %.0f%% (target height ~%dpx)",
+                self._scale * 100,
+                DEFAULT_TARGET_HEIGHT,
+            )
 
         self._apply_scale()
 
@@ -122,7 +113,6 @@ class PetWindow(QWidget):
             return
 
         target = self._original_pixmap.size() * self._scale
-        # High-quality smooth scaling for anti-aliased edges
         self._scaled_pixmap = self._original_pixmap.scaled(
             target,
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -131,31 +121,21 @@ class PetWindow(QWidget):
 
         size = self._scaled_pixmap.size()
         self.resize(size)
-        self.setFixedSize(size)  # exact size, no extra margins
-        self.update()  # trigger repaint
+        self.setFixedSize(size)
+        self.update()
 
     def _restore_geometry(self) -> None:
         s = self.config.settings
         self.move(int(s.pos_x), int(s.pos_y))
 
-    # ------------------------------------------------------------------
-    # Painting – the only place we draw, guarantees true transparency
-    # ------------------------------------------------------------------
-
     def paintEvent(self, event: QPaintEvent) -> None:
-        """Draw only the pixmap; everything else stays fully transparent."""
         if self._scaled_pixmap.isNull():
             return
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        # Critical: do NOT fill any background
         painter.drawPixmap(0, 0, self._scaled_pixmap)
-
-    # ------------------------------------------------------------------
-    # Mouse interaction
-    # ------------------------------------------------------------------
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -205,28 +185,21 @@ class PetWindow(QWidget):
         logger.debug("Scale set to %.0f%%", self._scale * 100)
         event.accept()
 
-    # ------------------------------------------------------------------
-    # Close behaviour: hide to tray, never quit from window close
-    # ------------------------------------------------------------------
-
     def closeEvent(self, event: QCloseEvent) -> None:
-        """Intercept close → hide instead of destroy."""
         event.ignore()
         self.hide()
         logger.info("Pet window hidden to tray.")
 
     def show_pet(self) -> None:
-        """Show and raise the pet (called from tray)."""
         self.show()
         self.raise_()
 
     def set_always_on_top(self, enabled: bool) -> None:
-        """Toggle always-on-top flag at runtime."""
         flags = self.windowFlags()
         if enabled:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         else:
             flags &= ~Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        self.show()  # required after flag change
+        self.show()
         self.config.set("always_on_top", enabled)
