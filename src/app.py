@@ -10,6 +10,7 @@ from src.utils.logger import setup_logger, get_logger
 from src.utils.paths import ensure_dirs
 from src.core.config import ConfigManager
 from src.ui.pet_window import PetWindow
+from src.ui.tray import TrayController
 
 
 def main() -> int:
@@ -24,15 +25,29 @@ def main() -> int:
     logger.info("DesktopPet starting...")
 
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
+    app.setQuitOnLastWindowClosed(False)  # critical: tray keeps process alive
     app.setApplicationName("DesktopPet")
-    app.setApplicationVersion("0.5.0")
+    app.setApplicationVersion("0.6.0")
 
     config = ConfigManager()
-    window = PetWindow(config)
-    window.show()
 
-    logger.info("Pet window shown. Drag with left mouse, scroll to scale.")
+    # Main pet window
+    window = PetWindow(config)
+
+    # System tray
+    tray = TrayController(config)
+    tray.show_pet_requested.connect(window.show_pet)
+    tray.quit_requested.connect(app.quit)
+
+    # Also allow window to request quit (future menus)
+    window.quit_requested.connect(app.quit)
+
+    window.show()
+    logger.info(
+        "Pet window shown. "
+        "Left-drag to move, wheel to scale, close → tray, tray menu → exit."
+    )
+
     return app.exec()
 
 

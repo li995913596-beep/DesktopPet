@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,20 +15,28 @@ logger = get_logger("config")
 
 @dataclass
 class AppSettings:
-    """Persistent application settings."""
+    """Persistent application settings.
+
+    Defaults are chosen for first-run comfort (scale will be auto-adjusted
+    to ~220 px height if the source image is large).
+    """
 
     pos_x: int = 100
     pos_y: int = 100
-    scale: float = 1.0
+    scale: float = 1.0          # will be snapped to allowed steps
     pet_name: str = "Girl"
     volume: float = 0.8
     always_on_top: bool = True
     random_move: bool = False
     auto_start: bool = False
+    version: str = "0.6.0"      # for future config migration
 
 
 class ConfigManager:
-    """Load, save and provide access to application configuration."""
+    """Load, save and provide access to application configuration.
+
+    Supports simple forward migration when new fields are added.
+    """
 
     def __init__(self, config_path: Path | None = None) -> None:
         ensure_dirs()
