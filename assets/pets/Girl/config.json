@@ -1,0 +1,10 @@
+{
+  "name": "Girl",
+  "display_name": "Girl",
+  "version": "1.0",
+  "default_scale": 1.0,
+  "animations": {
+    "idle": [],
+    "click": []
+  }
+}
