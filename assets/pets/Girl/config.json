@@ -2,9 +2,17 @@
   "name": "Girl",
   "display_name": "Girl",
   "version": "1.0",
+  "description": "Cute chibi girl with long black hair, grey crop top, blue jeans and black sandals. Energetic pose.",
   "default_scale": 1.0,
+  "author": "",
   "animations": {
     "idle": [],
-    "click": []
+    "click": [],
+    "happy": [],
+    "sleep": []
+  },
+  "sounds": {
+    "click": null,
+    "talk": null
   }
 }
