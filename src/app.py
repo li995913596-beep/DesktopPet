@@ -1,4 +1,4 @@
-"""Application entry point for DesktopPet."""
+"""Application entry point – wires the living Pet to a thin Renderer."""
 
 from __future__ import annotations
 
@@ -9,43 +9,46 @@ from PySide6.QtWidgets import QApplication
 from src.utils.logger import setup_logger, get_logger
 from src.utils.paths import ensure_dirs
 from src.core.config import ConfigManager
+from src.core.pet import Pet
 from src.ui.pet_window import PetWindow
 from src.ui.tray import TrayController
 
 
 def main() -> int:
-    """Start the DesktopPet application.
-
-    Returns:
-        Exit code.
-    """
     ensure_dirs()
     setup_logger()
     logger = get_logger("app")
-    logger.info("DesktopPet starting...")
+    logger.info("DesktopPet (QQ-Pet style) starting...")
 
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)  # tray keeps process alive
+    app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("DesktopPet")
-    app.setApplicationVersion("0.6.1")
+    app.setApplicationVersion("0.7.1")
 
     config = ConfigManager()
 
-    window = PetWindow(config)
+    # The living core
+    pet = Pet(config)
+
+    # Thin view
+    window = PetWindow(config, pet)
 
     tray = TrayController(config)
     tray.show_pet_requested.connect(window.show_pet)
     tray.hide_pet_requested.connect(window.hide)
-    tray.quit_requested.connect(app.quit)
-    window.quit_requested.connect(app.quit)
+    tray.quit_requested.connect(lambda: (pet.shutdown(), app.quit()))
+    window.quit_requested.connect(lambda: (pet.shutdown(), app.quit()))
 
     window.show()
     logger.info(
-        "Pet ready. "
-        "Drag = move | Wheel = scale | Close / Tray-Hide = tray | Tray-Exit = quit"
+        "Pet is alive. "
+        "It will idle / look / yawn / walk / talk on its own. "
+        "Click = reaction + bubble. Close = tray."
     )
 
-    return app.exec()
+    code = app.exec()
+    pet.shutdown()
+    return code
 
 
 if __name__ == "__main__":
