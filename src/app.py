@@ -25,27 +25,24 @@ def main() -> int:
     logger.info("DesktopPet starting...")
 
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)  # critical: tray keeps process alive
+    app.setQuitOnLastWindowClosed(False)  # tray keeps process alive
     app.setApplicationName("DesktopPet")
-    app.setApplicationVersion("0.6.0")
+    app.setApplicationVersion("0.6.1")
 
     config = ConfigManager()
 
-    # Main pet window
     window = PetWindow(config)
 
-    # System tray
     tray = TrayController(config)
     tray.show_pet_requested.connect(window.show_pet)
+    tray.hide_pet_requested.connect(window.hide)
     tray.quit_requested.connect(app.quit)
-
-    # Also allow window to request quit (future menus)
     window.quit_requested.connect(app.quit)
 
     window.show()
     logger.info(
-        "Pet window shown. "
-        "Left-drag to move, wheel to scale, close → tray, tray menu → exit."
+        "Pet ready. "
+        "Drag = move | Wheel = scale | Close / Tray-Hide = tray | Tray-Exit = quit"
     )
 
     return app.exec()

@@ -18,7 +18,7 @@ def _create_fallback_icon() -> QIcon:
     pix.fill(QColor(0, 0, 0, 0))
     painter = QPainter(pix)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.setBrush(QColor(255, 105, 180))  # hot pink
+    painter.setBrush(QColor(255, 105, 180))
     painter.setPen(QColor(255, 255, 255))
     painter.drawEllipse(4, 4, 56, 56)
     painter.end()
@@ -26,14 +26,10 @@ def _create_fallback_icon() -> QIcon:
 
 
 class TrayController(QObject):
-    """Manage system tray icon and its context menu.
-
-    Signals:
-        show_pet_requested: user wants the pet window visible
-        quit_requested: user chose Exit
-    """
+    """Manage system tray icon and its context menu."""
 
     show_pet_requested = Signal()
+    hide_pet_requested = Signal()
     quit_requested = Signal()
 
     def __init__(self, config: ConfigManager, parent: QObject | None = None) -> None:
@@ -43,7 +39,6 @@ class TrayController(QObject):
         self.tray = QSystemTrayIcon(parent)
         self.tray.setToolTip("DesktopPet")
 
-        # Try to use pet image as tray icon; fall back to generated icon
         icon = self._load_pet_icon() or _create_fallback_icon()
         self.tray.setIcon(icon)
 
@@ -58,14 +53,12 @@ class TrayController(QObject):
             logger.info("System tray icon shown.")
 
     def _load_pet_icon(self) -> QIcon | None:
-        """Create a small tray icon from the current pet image if present."""
         from src.core.resource_manager import ResourceManager
 
         rm = ResourceManager()
         pix = rm.get_pet_image(self.config.settings.pet_name)
         if pix is None or pix.isNull():
             return None
-        # Scale down for tray
         small = pix.scaled(
             64,
             64,
@@ -82,12 +75,11 @@ class TrayController(QObject):
         self.menu.addAction(show_action)
 
         hide_action = QAction("隐藏桌宠", self.menu)
-        hide_action.triggered.connect(self._hide_pet)
+        hide_action.triggered.connect(self.hide_pet_requested.emit)
         self.menu.addAction(hide_action)
 
         self.menu.addSeparator()
 
-        # Placeholder for future: switch character, settings, AI, etc.
         settings_action = QAction("设置 (即将推出)", self.menu)
         settings_action.setEnabled(False)
         self.menu.addAction(settings_action)
@@ -97,10 +89,6 @@ class TrayController(QObject):
         quit_action = QAction("退出", self.menu)
         quit_action.triggered.connect(self.quit_requested.emit)
         self.menu.addAction(quit_action)
-
-    def _hide_pet(self) -> None:
-        # Connected externally if needed; window handles its own hide via closeEvent
-        pass
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
