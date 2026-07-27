@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QApplication
+from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 
 from src.core.config import ConfigManager
 from src.utils.logger import get_logger
@@ -67,7 +67,8 @@ class TrayController(QObject):
             return None
         # Scale down for tray
         small = pix.scaled(
-            64, 64,
+            64,
+            64,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
@@ -98,9 +99,7 @@ class TrayController(QObject):
         self.menu.addAction(quit_action)
 
     def _hide_pet(self) -> None:
-        # The actual hide is done by the window; we just emit or call
-        # For now the window listens to its own closeEvent.
-        # This action can be connected externally if needed.
+        # Connected externally if needed; window handles its own hide via closeEvent
         pass
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
@@ -108,4 +107,6 @@ class TrayController(QObject):
             self.show_pet_requested.emit()
 
     def show_message(self, title: str, message: str, msecs: int = 3000) -> None:
-        self.tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, msecs)
+        self.tray.showMessage(
+            title, message, QSystemTrayIcon.MessageIcon.Information, msecs
+        )
