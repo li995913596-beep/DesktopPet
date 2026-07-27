@@ -1,7 +1,4 @@
-"""Pet – aggregate root. Owns brain, emotion, animation, etc.
-
-UI talks only to Pet (or to signals Pet exposes).
-"""
+"""Pet – aggregate root."""
 
 from __future__ import annotations
 
@@ -25,43 +22,29 @@ logger = get_logger("pet")
 
 
 class Pet(QObject):
-    """The living pet. Everything interesting lives here."""
-
-    # Renderer should connect to these
-    frame_changed = Signal(QPixmap, QPoint)   # pixmap, local offset
-    bubble_show = Signal(str, int)            # text, duration_ms
+    frame_changed = Signal(QPixmap, QPoint)
+    bubble_show = Signal(str, int)
     bubble_hide = Signal()
-    request_move = Signal(int, int)           # dx, dy in screen space
+    request_move = Signal(int, int)
 
     def __init__(self, config: ConfigManager, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self.config = config
         self.resources = ResourceManager()
 
-        # --- core subsystems ---
         self.scheduler = Scheduler(self)
         self.emotion = EmotionManager()
         self.state_machine = StateMachine()
         self.animation = AnimationManager(self)
         self.bubble = BubbleManager(self.emotion, self)
         self.behavior = BehaviorManager(
-            self.state_machine,
-            self.animation,
-            self.emotion,
-            self.bubble,
-            self,
+            self.state_machine, self.animation, self.emotion, self.bubble, self
         )
         self.brain = PetBrain(
-            self.scheduler,
-            self.emotion,
-            self.behavior,
-            self.state_machine,
-            self.animation,
-            self.bubble,
-            self,
+            self.scheduler, self.emotion, self.behavior,
+            self.state_machine, self.animation, self.bubble, self
         )
 
-        # wire signals outward
         self.animation.frame_changed.connect(self.frame_changed)
         self.bubble.show_text.connect(self.bubble_show)
         self.bubble.hide.connect(self.bubble_hide)
@@ -71,14 +54,13 @@ class Pet(QObject):
 
     def _load_appearance(self) -> None:
         name = self.config.settings.pet_name
+        self.animation.set_pet_name(name)
         pix = self.resources.get_pet_image(name)
         if pix is None or pix.isNull():
             logger.warning("No pet image for %s", name)
             return
         self.animation.set_base_pixmap(pix)
         self.animation.play(self.state_machine.state)
-
-    # ----- input from Renderer -----
 
     def handle_click(self) -> None:
         self.brain.on_user_click()

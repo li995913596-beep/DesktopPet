@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Callable, List, Optional
 
-from PySide6.QtCore import QObject, QPoint, Signal
+from PySide6.QtCore import QObject, Signal
 
 from src.core.emotion import EmotionManager
 from src.core.state_machine import PetState, StateMachine
@@ -24,20 +24,12 @@ class Behavior:
     base_weight: float
     min_duration_ms: int
     max_duration_ms: int
-    # Optional side-effect when behavior starts
     on_start: Optional[Callable[[], None]] = None
 
 
 class BehaviorManager(QObject):
-    """Owns the catalog of behaviors and the currently running one.
-
-    Weights are multiplied by EmotionManager multipliers so mood
-    actually changes what the pet prefers to do.
-    """
-
     behavior_finished = Signal()
-    # Request the renderer / pet to move by delta (for walk)
-    request_move = Signal(int, int)  # dx, dy
+    request_move = Signal(int, int)
 
     def __init__(
         self,
@@ -58,43 +50,45 @@ class BehaviorManager(QObject):
 
     def _build_catalog(self) -> None:
         self._behaviors = [
-            Behavior("idle", PetState.IDLE, 40, 3000, 8000),
-            Behavior("walk", PetState.WALK, 18, 2000, 5000),
-            Behavior("look_around", PetState.LOOK_AROUND, 12, 2000, 4000),
-            Behavior("stretch", PetState.STRETCH, 8, 1500, 3000),
-            Behavior("yawn", PetState.YAWN, 8, 1500, 3000),
-            Behavior("sleep", PetState.SLEEP, 6, 8000, 20000),
-            Behavior("talk", PetState.TALK, 8, 2000, 4000, on_start=self._do_talk),
+            Behavior("idle", PetState.IDLE, 32, 2500, 7000),
+            Behavior("walk", PetState.WALK, 16, 2000, 4500),
+            Behavior("look_around", PetState.LOOK_AROUND, 14, 1800, 3500),
+            Behavior("stretch", PetState.STRETCH, 8, 1500, 2800),
+            Behavior("yawn", PetState.YAWN, 8, 1500, 2800),
+            Behavior("sleep", PetState.SLEEP, 5, 8000, 18000),
+            # Higher talk chance so the pet actually speaks
+            Behavior("talk", PetState.TALK, 14, 2200, 4000, on_start=self._do_talk),
         ]
 
     def _do_talk(self) -> None:
         self._bubble.say_random()
 
     def select_and_start(self) -> int:
-        """Pick a behavior by weighted random and start it.
-
-        Returns suggested duration in ms so the caller can schedule finish.
-        """
         multipliers = self._emotion.behavior_multipliers()
-        weights = []
-        for b in self._behaviors:
-            w = b.base_weight * multipliers.get(b.name, 1.0)
-            weights.append(max(0.01, w))
-
+        weights = [
+            max(0.01, b.base_weight * multipliers.get(b.name, 1.0))
+            for b in self._behaviors
+        ]
         chosen = random.choices(self._behaviors, weights=weights, k=1)[0]
         duration = random.randint(chosen.min_duration_ms, chosen.max_duration_ms)
         self._start(chosen)
         return duration
 
     def force(self, name: str, duration_ms: int = 2000) -> None:
-        """Force a named behavior (e.g. click reaction)."""
         for b in self._behaviors:
             if b.name == name:
                 self._start(b)
                 return
-        # fallback click
         self._sm.set_state(PetState.CLICK)
         self._anim.play(PetState.CLICK)
+
+    def force_click(self) -> int:
+        """Click reaction: bounce + speak. Returns duration ms."""
+        self._sm.set_state(PetState.CLICK)
+        self._anim.play(PetState.CLICK)
+        self._bubble.say_random()
+        logger.info("Behavior: click reaction")
+        return 1800
 
     def _start(self, behavior: Behavior) -> None:
         self._current = behavior
@@ -105,9 +99,8 @@ class BehaviorManager(QObject):
         logger.info("Behavior start: %s", behavior.name)
 
         if behavior.name == "walk":
-            # Small random step; Renderer will apply
-            dx = random.choice([-1, 1]) * random.randint(20, 60)
-            dy = random.randint(-15, 15)
+            dx = random.choice([-1, 1]) * random.randint(25, 70)
+            dy = random.randint(-12, 12)
             self.request_move.emit(dx, dy)
 
     @property

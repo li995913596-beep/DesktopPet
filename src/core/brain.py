@@ -18,13 +18,6 @@ logger = get_logger("brain")
 
 
 class PetBrain(QObject):
-    """High-level autonomy.
-
-    Scheduler ticks drive 'think' cycles. Emotion drifts over time.
-    Long idle without interaction makes the pet sleepy / bored.
-    User interaction wakes it up and can force reactions.
-    """
-
     def __init__(
         self,
         scheduler: Scheduler,
@@ -46,19 +39,14 @@ class PetBrain(QObject):
         self._idle_seconds = 0
         self._busy = False
 
-        # Main think loop – every 4s decide whether to pick a new behavior
-        self._scheduler.every("think", 4000, self._think)
-        # Emotion drift + idle tracking
+        self._scheduler.every("think", 3500, self._think)
         self._scheduler.every("mood", 10000, self._mood_tick)
 
-        # Start with a gentle idle
         self._start_behavior_cycle()
 
     def _think(self) -> None:
         if self._busy:
             return
-        # Occasionally start a new behavior even if one is running
-        # (simple model; later behaviors will signal finished)
         self._start_behavior_cycle()
 
     def _start_behavior_cycle(self) -> None:
@@ -68,36 +56,27 @@ class PetBrain(QObject):
 
     def _on_behavior_end(self) -> None:
         self._busy = False
-        # Return to soft idle animation while waiting for next think
         self._sm.set_state(PetState.IDLE)
         self._anim.play(PetState.IDLE)
 
     def _mood_tick(self) -> None:
         self._idle_seconds += 10
         self._emotion.drift_toward_neutral(0.03)
-
-        # Long no-interaction → sleepy / bored
-        if self._idle_seconds > 180:  # 3 min
+        if self._idle_seconds > 180:
             self._emotion.set_emotion(Emotion.SLEEPY, 0.7)
         elif self._idle_seconds > 90:
             self._emotion.set_emotion(Emotion.BORED, 0.5)
 
-    # ----- external stimuli from UI -----
-
     def on_user_click(self) -> None:
         self._idle_seconds = 0
-        self._emotion.set_emotion(Emotion.HAPPY, 0.6)
+        self._emotion.set_emotion(Emotion.HAPPY, 0.65)
         self._scheduler.cancel("behavior_end")
-        self._behavior.force("idle")  # will be replaced by click anim
-        self._sm.set_state(PetState.CLICK)
-        self._anim.play(PetState.CLICK)
-        self._bubble.say_random()
+        duration = self._behavior.force_click()
         self._busy = True
-        self._scheduler.once("behavior_end", 1800, self._on_behavior_end)
+        self._scheduler.once("behavior_end", duration, self._on_behavior_end)
 
     def on_user_drag(self) -> None:
         self._idle_seconds = 0
 
     def on_mouse_nearby(self, global_pos: QPoint) -> None:
-        """Optional future: follow / look at mouse."""
         pass

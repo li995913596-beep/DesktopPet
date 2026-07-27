@@ -1,12 +1,8 @@
-"""Thin Renderer + input forwarder.
-
-All life (brain, emotion, behavior, animation) lives in core.Pet.
-This window only displays frames and reports user input upward.
-"""
+"""Thin Renderer + input forwarder + soft shadow for depth."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QPoint, Signal
+from PySide6.QtCore import Qt, QPoint, Signal, QTimer
 from PySide6.QtGui import (
     QPixmap,
     QMouseEvent,
@@ -14,11 +10,13 @@ from PySide6.QtGui import (
     QPainter,
     QPaintEvent,
     QCloseEvent,
+    QColor,
 )
-from PySide6.QtWidgets import QWidget, QLabel
+from PySide6.QtWidgets import QWidget
 
 from src.core.config import ConfigManager
 from src.core.pet import Pet
+from src.ui.bubble_window import BubbleWindow
 from src.utils.logger import get_logger
 
 logger = get_logger("pet_window")
@@ -28,8 +26,6 @@ DEFAULT_TARGET_HEIGHT: int = 150
 
 
 class PetWindow(QWidget):
-    """Desktop renderer for the living Pet."""
-
     quit_requested = Signal()
 
     def __init__(self, config: ConfigManager, pet: Pet) -> None:
@@ -42,12 +38,12 @@ class PetWindow(QWidget):
         self._offset = QPoint(0, 0)
         self._base_size = None  # type: ignore
 
+        self.bubble_win = BubbleWindow()
+
         self._setup_window_flags()
-        self._setup_bubble_label()
         self._connect_pet()
         self._restore_geometry()
 
-    # ------------------------------------------------------------------
     def _setup_window_flags(self) -> None:
         flags = (
             Qt.WindowType.FramelessWindowHint
@@ -62,38 +58,17 @@ class PetWindow(QWidget):
         self.setAutoFillBackground(False)
         self.setMouseTracking(True)
 
-    def _setup_bubble_label(self) -> None:
-        self.bubble_label = QLabel(self)
-        self.bubble_label.setStyleSheet(
-            """
-            QLabel {
-                background: rgba(255, 255, 255, 230);
-                color: #333;
-                border-radius: 10px;
-                padding: 6px 10px;
-                font-size: 12px;
-            }
-            """
-        )
-        self.bubble_label.setWordWrap(True)
-        self.bubble_label.hide()
-
     def _connect_pet(self) -> None:
         self.pet.frame_changed.connect(self._on_frame)
         self.pet.bubble_show.connect(self._on_bubble_show)
         self.pet.bubble_hide.connect(self._on_bubble_hide)
         self.pet.request_move.connect(self._on_request_move)
 
-    # ------------------------------------------------------------------
-    # Frame from AnimationManager
-    # ------------------------------------------------------------------
-
     def _on_frame(self, pixmap: QPixmap, offset: QPoint) -> None:
         if pixmap.isNull():
             return
-        # Apply user scale once on the base from animation
-        if self._base_size is None or self._base_size != pixmap.size():
-            # First real frame – decide initial scale
+
+        if self._base_size is None or abs(self._base_size.height() - pixmap.height()) > 2:
             self._base_size = pixmap.size()
             current_h = pixmap.height() * self._scale
             if current_h > DEFAULT_TARGET_HEIGHT * 1.1 or abs(self._scale - 1.0) < 1e-6:
@@ -101,32 +76,27 @@ class PetWindow(QWidget):
                 self._scale = min(SCALE_STEPS, key=lambda s: abs(s - auto))
                 self.config.set("scale", self._scale)
 
-        from PySide6.QtCore import Qt as _Qt
         scaled = pixmap.scaled(
             pixmap.size() * self._scale,
-            _Qt.AspectRatioMode.KeepAspectRatio,
-            _Qt.TransformationMode.SmoothTransformation,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
         self._pixmap = scaled
         self._offset = QPoint(int(offset.x() * self._scale), int(offset.y() * self._scale))
-        self.resize(scaled.size())
-        self.setFixedSize(scaled.size())
+
+        # Extra room at bottom for soft shadow
+        shadow_pad = 10
+        self.resize(scaled.width(), scaled.height() + shadow_pad)
+        self.setFixedSize(scaled.width(), scaled.height() + shadow_pad)
         self.update()
 
     def _on_bubble_show(self, text: str, duration_ms: int) -> None:
-        self.bubble_label.setText(text)
-        self.bubble_label.adjustSize()
-        # Place above the pet
-        x = max(0, (self.width() - self.bubble_label.width()) // 2)
-        y = -self.bubble_label.height() - 6
-        self.bubble_label.move(x, y)
-        self.bubble_label.show()
-        # Auto hide
-        from PySide6.QtCore import QTimer
-        QTimer.singleShot(duration_ms, self.bubble_label.hide)
+        # Anchor: top-center of pet in global coordinates
+        top_center = self.mapToGlobal(QPoint(self.width() // 2, 0))
+        self.bubble_win.show_text(text, duration_ms, top_center)
 
     def _on_bubble_hide(self) -> None:
-        self.bubble_label.hide()
+        self.bubble_win.clear()
 
     def _on_request_move(self, dx: int, dy: int) -> None:
         pos = self.pos()
@@ -134,18 +104,27 @@ class PetWindow(QWidget):
         self.config.set("pos_x", self.pos().x())
         self.config.set("pos_y", self.pos().y())
 
-    # ------------------------------------------------------------------
     def paintEvent(self, event: QPaintEvent) -> None:
         if self._pixmap.isNull():
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
-        painter.drawPixmap(self._offset, self._pixmap)
 
-    # ------------------------------------------------------------------
-    # Input → forward to Pet
-    # ------------------------------------------------------------------
+        # Soft drop shadow for slight 3D depth
+        shadow = QPixmap(self._pixmap.size())
+        shadow.fill(Qt.GlobalColor.transparent)
+        sp = QPainter(shadow)
+        sp.setOpacity(0.25)
+        sp.drawPixmap(0, 0, self._pixmap)
+        sp.end()
+        # Blur-ish by drawing offset multiple times
+        for dx, dy in ((2, 3), (3, 5), (1, 4)):
+            painter.setOpacity(0.12)
+            painter.drawPixmap(self._offset.x() + dx, self._offset.y() + dy, shadow)
+        painter.setOpacity(1.0)
+
+        painter.drawPixmap(self._offset, self._pixmap)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -187,13 +166,13 @@ class PetWindow(QWidget):
             idx = max(idx - 1, 0)
         self._scale = SCALE_STEPS[idx]
         self.config.set("scale", self._scale)
-        # Force re-scale on next frame
         self._base_size = None
         event.accept()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         event.ignore()
         self.hide()
+        self.bubble_win.hide()
 
     def show_pet(self) -> None:
         self.show()
